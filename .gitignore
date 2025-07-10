@@ -1,0 +1,18 @@
+# Ignore virtual environment and system files
+venv/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+# Ignore data files
+*.xlsx
+*.csv
+*.pdf
+
+# Ignore Jupyter and Streamlit junk
+.ipynb_checkpoints/
+.streamlit/
+
+# Others
+.env
