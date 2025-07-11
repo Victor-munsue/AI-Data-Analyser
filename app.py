@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+
 from sklearn.ensemble import IsolationForest
 import numpy as np
 import streamlit as st
@@ -55,9 +55,8 @@ def activate_license(otp_input):
 
 
 # Initialize OpenAI client
-load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 
 st.set_page_config(page_title="Data Analyzer", layout="wide")

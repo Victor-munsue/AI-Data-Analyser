@@ -7,5 +7,4 @@ scikit-learn
 openai
 fpdf
 openpyxl
-python-dotenv
 
