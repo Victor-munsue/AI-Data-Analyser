@@ -1,4 +1,7 @@
-
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime, timedelta
 from sklearn.ensemble import IsolationForest
 import numpy as np
 import streamlit as st
@@ -21,37 +24,141 @@ import json
 from datetime import datetime, timedelta
 import random
 
-LICENSE_FILE = "licenses.json"
+# Hybrid Payment Form Section (to insert into your app before activation)
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+import tempfile
+import os
+
+# --- CONFIG ---
+DRIVE_FOLDER_ID = "1Zr4sRRInBdEWhtTgnwN_f0gZCoHkD6p7"
+WHATSAPP_NUMBER = "+2349161398285"
+
+# --- Setup Google API ---
+creds = Credentials.from_service_account_info(st.secrets["gspread"])
+sheet_client = gspread.authorize(creds)
+drive_service = build("drive", "v3", credentials=creds)
+
+# --- Create Payments Sheet if Missing ---
 
 
-def load_licenses():
+def get_or_create_payment_sheet():
+    sheet = sheet_client.open("LicenseKeys")
     try:
-        with open(LICENSE_FILE, "r") as f:
-            return json.load(f)
+        payments = sheet.worksheet("Payments")
     except:
-        return {}
+        payments = sheet.add_worksheet("Payments", rows=1000, cols=5)
+        payments.append_row(["Timestamp", "Name", "Email", "Screenshot Link"])
+    return payments
+
+# --- Upload to Drive Folder ---
 
 
-def save_licenses(licenses):
-    with open(LICENSE_FILE, "w") as f:
-        json.dump(licenses, f, indent=2)
+def upload_to_drive(uploaded_file, name):
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    tmp.write(uploaded_file.read())
+    tmp.flush()
+
+    media = MediaFileUpload(tmp.name, resumable=True)
+    file_metadata = {
+        "name": f"{name}-{datetime.now().strftime('%Y%m%d%H%M%S')}.png",
+        "parents": [DRIVE_FOLDER_ID]
+    }
+    file = drive_service.files().create(
+        body=file_metadata, media_body=media, fields="id").execute()
+    file_id = file.get("id")
+    os.unlink(tmp.name)
+    return f"https://drive.google.com/file/d/{file_id}/view"
 
 
-def activate_license(otp_input):
-    licenses = load_licenses()
-    license = licenses.get(otp_input)
-    if not license:
-        return None, "❌ Invalid code"
-    if license["activated"]:
-        return None, "🔒 Code has already been used"
-    if datetime.now() > datetime.fromisoformat(license["expires"]):
-        return None, "⌛ Code expired"
-    license["activated"] = True
-    licenses = load_licenses()
-    licenses[otp_input] = license
-    save_licenses(licenses)
+# --- Show Payment Form ---
+st.markdown("### 💳 Submit Payment Proof")
+with st.form("payment_form"):
+    name = st.text_input("Full Name")
+    email = st.text_input("Email Address")
+    screenshot = st.file_uploader(
+        "Upload Payment Screenshot", type=["jpg", "jpeg", "png"])
+    submit = st.form_submit_button("Send & Notify on WhatsApp")
 
-    return license, "✅ Code activated"
+if submit:
+    if not name or not email or not screenshot:
+        st.warning("Please complete all fields before submitting.")
+    else:
+        # Upload file
+        file_url = upload_to_drive(screenshot, name)
+        # Save to sheet
+        sheet = get_or_create_payment_sheet()
+        sheet.append_row([str(datetime.now()), name, email, file_url])
+
+        # Redirect to WhatsApp
+        message = f"Hello, I just paid for AI Analyzer. Name: {name}, Email: {email}. Kindly confirm."
+        encoded_msg = message.replace(" ", "%20")
+        whatsapp_link = f"https://wa.me/{WHATSAPP_NUMBER}?text={encoded_msg}"
+        st.success("✅ Submitted! Click below to notify us on WhatsApp.")
+        st.markdown(
+            f"[🔔 Notify on WhatsApp]({whatsapp_link})", unsafe_allow_html=True)
+        st.stop()
+
+
+def get_worksheet():
+    creds = Credentials.from_service_account_info(st.secrets["gspread"])
+    client = gspread.authorize(creds)
+    # Must match your Google Sheet name exactly
+    sheet = client.open("LicenseKeys")
+    return sheet.sheet1
+
+
+def validate_code(code_input):
+    sheet = get_worksheet()
+    records = sheet.get_all_records()
+
+    for i, row in enumerate(records):
+        if str(row["Code"]).strip() == code_input.strip():
+            if str(row["Activated"]).upper() == "TRUE":
+                return None, "🔒 Code already used"
+            if datetime.now() > datetime.strptime(row["Expired"], "%Y-%m-%d %H:%M:%S"):
+                return None, "⌛ Code expired"
+
+            # ✅ Mark as activated in Google Sheet
+            sheet.update_cell(i + 2, 1, "TRUE")  # 'Activated' column = TRUE
+            return True, "✅ Code activated for 30 days"
+
+    return None, "❌ Invalid code"
+
+
+SESSION_KEY = "access_until"
+
+
+def is_session_active():
+    if SESSION_KEY in st.session_state:
+        return datetime.now() < st.session_state[SESSION_KEY]
+    return False
+
+
+def set_session_30_days():
+    st.session_state[SESSION_KEY] = datetime.now() + timedelta(days=30)
+
+
+if not is_session_active():
+    st.sidebar.header("🔐 Secure Access")
+    code_input = st.sidebar.text_input(
+        "Enter Activation Code", type="password")
+
+    if code_input:
+        status, msg = validate_code(code_input)
+        st.sidebar.info(msg)
+
+        if status:
+            set_session_30_days()
+            st.experimental_rerun()
+        else:
+            st.stop()
+    else:
+        st.stop()
 
 
 # Initialize OpenAI client
@@ -64,46 +171,6 @@ st.title("📊 Data Analyzer - AI Enhanced")
 
 # 🔐 Secure Access
 st.sidebar.header("🔐 Secure Access")
-
-# Initialize session if not already
-if "otp_activated" not in st.session_state:
-    try:
-        with open("session.json", "r") as f:
-            session_data = json.load(f)
-        expiry = datetime.fromisoformat(session_data["expires"])
-        if datetime.now() < expiry:
-            st.session_state.otp_activated = True
-        else:
-            st.session_state.otp_activated = False
-    except:
-        st.session_state.otp_activated = False
-
-
-if not st.session_state.otp_activated:
-    otp_input = st.sidebar.text_input(
-        "Enter One-Time Access Code", type="password")
-
-    if otp_input:
-        license, msg = activate_license(otp_input)
-        st.sidebar.info(msg)
-
-        if license:
-            # ✅ Mark OTP as used
-            license["activated"] = True
-            save_licenses(load_licenses())
-
-            # ✅ Save session (30 days from now)
-            session_data = {
-                "expires": (datetime.now() + timedelta(days=30)).isoformat()
-            }
-            with open("session.json", "w") as f:
-                json.dump(session_data, f)
-
-            st.session_state.otp_activated = True
-        else:
-            st.stop()
-    else:
-        st.stop()
 
 
 # 🎨 Theme Switcher (always visible)

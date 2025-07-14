@@ -12,7 +12,18 @@ __pycache__/
 
 # Ignore Jupyter and Streamlit junk
 .ipynb_checkpoints/
+*.ipynb
 .streamlit/
 
-# Others
+# Ignore session/auth files from old system
+session.json
+licenses.json
+
+# Ignore IDE/editor settings
 .env
+.vscode/
+
+#ignore desktop.ini
+desktop.ini
+
+

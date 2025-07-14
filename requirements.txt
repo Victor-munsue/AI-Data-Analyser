@@ -7,4 +7,9 @@ scikit-learn
 openai
 fpdf
 openpyxl
+gspread
+google-auth
+google-api-python-client
+
+
 
